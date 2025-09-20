@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name="finm37000-2025"
+version="2025.0.0"
+authors = [
+    { name="Eric Patterson", email="ericpatterson11@gmail.com" },
+]
+description = "A package support FINM 37000 at the University of Chicago"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+
+[project.urls]
+Homepage = "https://github.com/pattersonem/finm37000-2025"
+Repository = "https://github.com/pattersonem/finm37000-2025.git"
+Issues = "https://github.com/pattersonem/finm37000-2025/issues"
+
+[dependency-groups]
+lint = [
+    "mypy >= 1.10",
+    "ruff >= 0.12.0",
+]
+dev = [
+    { include-group = "lint" },
+]
+
+[tool.mypy]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unreachable = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
