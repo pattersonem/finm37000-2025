@@ -48,13 +48,13 @@ def get_databento_api_key(
     create a databento historical client without leaving your API key
     in your code. For example,
 
-    >>> import databento as db
-    >>> client = db.Historical(get_databento_api_key())
+    >>> import databento as db  # doctest: +SKIP
+    >>> client = db.Historical(get_databento_api_key())  # doctest: +SKIP
 
     or
 
     >>> with temp_env(DATABENTO_API_KEY=get_databento_api_key()):
-    ...     client = db.Historical()
+    ...     client = db.Historical()  # doctest: +SKIP
 
     """
     with open(path) as f:

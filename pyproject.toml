@@ -40,7 +40,6 @@ dev = [
 addopts = [
     "--import-mode=importlib",
     "--doctest-modules",
-    "--doctest-ignore-import-errors",  # examples using, e.g., databento that are not required by the package.
     "--strict-markers", 
 ]
 
