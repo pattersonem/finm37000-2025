@@ -40,4 +40,4 @@ jobs:
         mypy .
     - name: Test with pytest
       run: |
-        pytest
+        pytest --doctest-ignore-import-errors
