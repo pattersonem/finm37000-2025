@@ -1,14 +1,15 @@
+"""Construct Databento clients without exposing your API key."""
+
 import contextlib
-import pathlib
 import os
+import pathlib
 import re
-from typing import Generator
+from typing import Generator, Optional
 
 
 @contextlib.contextmanager
 def temp_env(**environ: str) -> Generator:
-    """
-    Temporarily set the process environment variables.
+    """Temporarily set the process environment variables.
 
     >>> with temp_env(PLUGINS_DIR='test/plugins'):
     ...   "PLUGINS_DIR" in os.environ
@@ -30,17 +31,20 @@ def temp_env(**environ: str) -> Generator:
 
 
 class Secret(str):
+    """Simple str override for hiding actual values."""
+
     def __str__(self) -> str:
+        """Replace actual string with * when printing to the screen."""
         return re.sub(r"\S", "*", self)
 
 
 def get_databento_api_key(
-    path: pathlib.Path = pathlib.Path.home() / ".databento_api_key",
+    path: Optional[pathlib.Path] = None,
 ) -> Secret:
-    """
-    Retrieve the databento API key from a file.
+    """Retrieve the databento API key from a file.
 
-    :param path: Path to the file with the API key. Default is `~/.databento_api_key`.
+    Args:
+        path: Path to the file with the API key. Default is `~/.databento_api_key`.
 
     Reads and return one line of the text file specified by `path`.
     Save your api key in the default `~/.databento_api_key` file
@@ -57,6 +61,8 @@ def get_databento_api_key(
     ...     client = db.Historical()  # doctest: +SKIP
 
     """
+    if path is None:
+        path = pathlib.Path.home() / ".databento_api_key"
     with open(path) as f:
         api_key = f.readline().strip()
     return Secret(api_key)
