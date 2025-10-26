@@ -12,18 +12,44 @@ Refer to documentation for your environment.
 environment, but it is incumbent on you to make sure you are using yours because the instructions
 make no attempt to cover the system and environment differences that can arise.
 
-Install:
+You can install the package directly from `github`, but you will not get the other
+course materials like notebooks and homework, so probably proceed to clone or fork and clone.
+
 ```
-pip install 
+python -m pip install git+https://github.com/pattersonem/finm37000-2025.git
 ```
 
 Install for development:
 ```
-git clone
+git clone git@github.com:pattersonem/finm37000-2025.git
 cd finm37000-2025
-python -m pip install --group dev -e .
+# pip >= 25.2
+python -m pip install --group demo -e .
+# Earlier pip
+python -m pip install -e ".[demo]"
+```
+
+### Test
+
+```
+python -m pytest
+```
+
+### Lint
+
+```
 python -m ruff check
+```
+
+### Format
+
+```
 python -m ruff format
+```
+
+### Type Check
+
+```
 python -m mypy .
 ```
 

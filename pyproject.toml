@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name="finm37000-2025"
-version="2025.0.0"
+version="0.1.0"
 authors = [
     { name="Eric Patterson", email="ericpatterson11@gmail.com" },
 ]
@@ -17,19 +17,56 @@ classifiers = [
 ]
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
+dependencies = [
+    "databento",
+    "pandas",
+]
 
 [project.urls]
 Homepage = "https://github.com/pattersonem/finm37000-2025"
 Repository = "https://github.com/pattersonem/finm37000-2025.git"
 Issues = "https://github.com/pattersonem/finm37000-2025/issues"
 
+[project.optional-dependencies]
+demo = [
+    "databento",
+    "ipykernel",
+    "jupyter",
+    "matplotlib",
+    "pandas",
+    "pandas-stubs",
+    "plotly",
+    "quantlib",
+    "scipy",
+    "torch"
+]
+dev = [
+    "pandas-stubs",
+    "pytest >= 8.0.0",
+    "mypy >= 1.10",
+    "ruff >= 0.12.0",
+]
+
 [dependency-groups]
+demo = [
+    "databento",
+    "ipykernel",
+    "jupyter",
+    "matplotlib",
+    "pandas",
+    "pandas-stubs",
+    "plotly",
+    "quantlib",
+    "scipy",
+    "torch"
+]
 test = [
     "pytest >= 8.0.0",
 ]
 lint = [
     "mypy >= 1.10",
     "ruff >= 0.12.0",
+    "pandas-stubs",
 ]
 dev = [
     { include-group = "lint" },
@@ -50,3 +87,46 @@ warn_return_any = true
 warn_unreachable = true
 warn_unused_ignores = true
 disallow_untyped_defs = true
+packages = [
+    "finm37000",
+    "tests",
+]
+
+[tool.ruff.lint]
+select=[
+    "A",
+    "ANN",
+    "ARG",
+    "B",
+    "C4",
+    "D",
+    "DTZ",
+    "E",
+    "EM",
+    "EXE",
+    "F",
+    "FIX",
+    "I",
+    "ISC",
+    "ICN",
+    "N",
+    "NPY",
+    "PD",
+    "PERF",
+    "PIE",
+    "PL",
+    "Q",
+    "SIM",
+    "TC",
+    "W",
+    "YTT",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["D"]
+"homework/*.ipynb" = ["ANN", "D101", "D103"]
+"notebooks/*.ipynb" = ["ANN", "C408", "D101", "D103"]
+"src/finm37000/__init__.py" = ["I001"]
