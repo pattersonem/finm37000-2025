@@ -185,3 +185,65 @@ def multiplicative_splice(
     with_adjustment[adjustments.name] = cumulative_adjustment
     new_columns = df.columns.tolist() + [adjustments.name]
     return with_adjustment.reset_index()[new_columns]
+
+
+def constant_maturity_splice(
+    symbol,
+    roll_spec,
+    all_data,
+    date_col="datetime",
+    price_col="price",
+) -> pd.DataFrame:
+    
+    raw_sym, _, m = symbol.split('.')
+    start = pd.to_datetime(roll_spec[0]['d0'], utc=True)
+    end = pd.to_datetime(roll_spec[-1]['d1'], utc = True)
+    result = pd.DataFrame()
+    result[date_col] = pd.date_range(start, end)[:-1]
+    result = result.set_index(date_col)
+    result['pre_id'] = 0
+    result['next_id'] = 0
+    for row in roll_spec:
+        result.loc[row['d0']:row['d1'], 'pre_id'] = int(row['p'])
+        result.loc[row['d0']:row['d1'], 'next_id'] = int(row['n'])
+    all_data_setidx = all_data.copy()
+    all_data_setidx[date_col] = pd.to_datetime(all_data_setidx[date_col])
+    all_data_setidx = all_data_setidx.set_index(['instrument_id', date_col])
+    result[['pre_price', 'pre_expiration']] = all_data_setidx.loc[result.reset_index().set_index(['pre_id', date_col]).index].to_numpy()
+    result[['next_price', 'next_expiration']] = all_data_setidx.loc[result.reset_index().set_index(['next_id', date_col]).index].to_numpy()
+    result[['pre_price', 'next_price']] = result[['pre_price', 'next_price']].astype('int64')
+    result = result.reset_index()
+    result['pre_weight'] = (result['next_expiration'] - (result[date_col] + pd.Timedelta(days = int(m)))) / (result['next_expiration'] - result['pre_expiration'])
+    result[symbol] = result['pre_weight'] * result['pre_price'] + (1 - result['pre_weight']) * result['next_price']
+    return result[[date_col, 'pre_price', 'pre_id', 'pre_expiration', 'next_price', 'next_id', 'next_expiration', 'pre_weight', symbol]]
+
+def get_roll_spec(
+    symbol,
+    instrument_df, 
+    start, 
+    end
+):
+    raw_sym, _, m = symbol.split('.')
+    instrument_df = instrument_df[instrument_df['instrument_class'] == 'F'].copy()
+    instrument_df['ts_recv'] = pd.to_datetime(instrument_df['ts_recv']).apply(lambda x : x.date())
+    instrument_df['expiration'] = pd.to_datetime(instrument_df['expiration'].apply(lambda x : x.date()))
+    instrument_df['expiration_shift'] = (instrument_df['expiration'] - pd.Timedelta(days = int(m) - 1)).apply(lambda x : x.date())
+    instrument_df = instrument_df.sort_values('expiration')
+    result = []
+    date = start
+    while (date < end) & (end < instrument_df['expiration_shift'].iloc[-1]):
+        row1 = instrument_df[(instrument_df['expiration_shift'] <= date) & (instrument_df['ts_recv'] <= date)].iloc[-1]
+        end_dates_row = instrument_df[(instrument_df['expiration_shift'] > date)].iloc[0]
+        row2 = instrument_df[(instrument_df['expiration_shift'] > date) & (instrument_df['ts_recv'] <= date)].iloc[0]
+        date_prev = date
+        if end_dates_row['instrument_id'] == row2['instrument_id']:
+            date = row2['expiration_shift']
+        else:
+            date = end_dates_row['ts_recv']
+        result.append({
+            'd0':str(date_prev), 'd1':str(date), 
+            'p':str(row1['instrument_id']), 'n':str(row2['instrument_id'])
+        })
+    result[0]['d0'] = str(start)
+    result[-1]['d1'] = str(end)
+    return result
