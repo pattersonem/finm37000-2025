@@ -58,31 +58,31 @@ def test_additive_splice(time: dict[int, pd.Series]) -> None:
         },
     )
 
-    unadjusted_splice = np.concat(
+    unadjusted_splice = np.concatenate(
         [prices[0][11:16], prices[1][12:23], prices[0][27:39]],
     )
-    unadjusted_alt = np.concat(
+    unadjusted_alt = np.concatenate(
         [np.arange(11, 16), np.arange(12, 23), np.arange(27, 39)],
     )
     adjustment = [
         prices[1][11] - prices[0][15],
         prices[0][26] - prices[1][22],
     ]
-    adjusted_price = np.concat(
+    adjusted_price = np.concatenate(
         [
             unadjusted_splice[0:5],
             adjustment[0] + unadjusted_splice[5:16],
             adjustment[0] + adjustment[1] + unadjusted_splice[16:28],
         ],
     ).astype(float)
-    adjusted_alt = np.concat(
+    adjusted_alt = np.concatenate(
         [
             unadjusted_alt[0:5],
             adjustment[0] + unadjusted_alt[5:16],
             adjustment[0] + adjustment[1] + unadjusted_alt[16:28],
         ],
     ).astype(float)
-    cumulative_adjustment = np.concat(
+    cumulative_adjustment = np.concatenate(
         [
             np.repeat(0.0, 5),
             np.repeat(adjustment[0], 11),
@@ -171,31 +171,31 @@ def test_multiplicative_splice(time: dict[int, pd.Series]) -> None:
         },
     )
 
-    unadjusted_splice = np.concat(
+    unadjusted_splice = np.concatenate(
         [prices[0][11:16], prices[1][12:23], prices[0][27:39]],
     )
-    unadjusted_alt = np.concat(
+    unadjusted_alt = np.concatenate(
         [np.arange(11, 16), np.arange(12, 23), np.arange(27, 39)],
     )
     adjustment = [
         prices[1][11] / prices[0][15],
         prices[0][26] / prices[1][22],
     ]
-    adjusted_price = np.concat(
+    adjusted_price = np.concatenate(
         [
             unadjusted_splice[0:5],
             adjustment[0] * unadjusted_splice[5:16],
             adjustment[0] * adjustment[1] * unadjusted_splice[16:28],
         ],
     )
-    adjusted_alt = np.concat(
+    adjusted_alt = np.concatenate(
         [
             unadjusted_alt[0:5],
             adjustment[0] * unadjusted_alt[5:16],
             adjustment[0] * adjustment[1] * unadjusted_alt[16:28],
         ],
     )
-    cumulative_adjustment = np.concat(
+    cumulative_adjustment = np.concatenate(
         [
             np.repeat(1.0, 5),
             np.repeat(adjustment[0], 11),
