@@ -1,6 +1,6 @@
 """Functions to splice and adjust futures data into continuous data."""
 
-from typing import Optional
+from typing import Optional, List, Dict
 
 import pandas as pd
 
@@ -185,3 +185,45 @@ def multiplicative_splice(
     with_adjustment[adjustments.name] = cumulative_adjustment
     new_columns = df.columns.tolist() + [adjustments.name]
     return with_adjustment.reset_index()[new_columns]
+
+
+def constant_maturity_splice(
+    symbol: str,
+    roll_spec: List[Dict[str, str]],
+    df: pd.DataFrame,
+    date_col: str = "datetime",
+    price_col: str = "price",
+) -> pd.DataFrame:
+    """Construct a constant-maturity futures price series.
+
+    Weighted linear interpolation between two contracts based on time
+    to maturity.
+    """
+    maturity_days = pd.Timedelta(days=int(symbol.split(".")[-1]))
+    expirations = df.drop_duplicates(subset="instrument_id").set_index("instrument_id")["expiration"]
+    results = []
+
+    for spec in roll_spec:
+        d0, d1 = spec["d0"], spec["d1"]
+        pre, nxt = int(spec["p"]), int(spec["n"])
+        t = pd.date_range(start=d0, end=d1, tz="UTC", inclusive="left")
+
+        exp_pre = pd.to_datetime(expirations.loc[pre])
+        exp_nxt = pd.to_datetime(expirations.loc[nxt])
+
+        f = (exp_nxt - (t + maturity_days)) / (exp_nxt - exp_pre)
+
+        seg = pd.DataFrame({
+            "datetime": t,
+            "pre_price": pre,
+            "pre_id": pre,
+            "pre_expiration": exp_pre,
+            "next_price": nxt,
+            "next_id": nxt,
+            "next_expiration": exp_nxt,
+            "pre_weight": f,
+            symbol: f * pre + (1 - f) * nxt,
+        })
+        results.append(seg)
+
+    return pd.concat(results, ignore_index=True)

@@ -105,3 +105,76 @@ def get_all_legs_on(
     )
     stats = get_official_stats(raw_stats.to_df(), leg_defs.reset_index())
     return stats, leg_defs
+
+def get_roll_spec(
+    symbol: str,
+    instrument_df: pd.DataFrame,
+    start: datetime.date,
+    end: datetime.date,
+) -> list[dict[str, str]]:
+    maturity_days = int(symbol.split(".")[-1])
+
+    df = instrument_df.copy()
+    df = df[df["instrument_class"].astype(str).str.upper().str.startswith("F")].copy()
+    df = df.sort_values("expiration").reset_index(drop=True)
+
+    df["expiration"] = pd.to_datetime(df["expiration"])
+    if df["expiration"].dt.tz is None:
+        df["expiration"] = df["expiration"].dt.tz_localize("UTC")
+    else:
+        df["expiration"] = df["expiration"].dt.tz_convert("UTC")
+
+    df["ts_recv"] = pd.to_datetime(df["ts_recv"])
+    if df["ts_recv"].dt.tz is None:
+        df["ts_recv"] = df["ts_recv"].dt.tz_localize("UTC")
+    else:
+        df["ts_recv"] = df["ts_recv"].dt.tz_convert("UTC")
+
+    results: list[dict[str, str]] = []
+    current = start
+
+    while current < end:
+        target = pd.Timestamp(current, tz="UTC") + pd.Timedelta(days=maturity_days)
+
+        live = df[df["ts_recv"] <= pd.Timestamp(current, tz="UTC")]
+        if live.empty:
+            break
+
+        pre = live[live["expiration"] <= target].tail(1)
+        nxt = live[live["expiration"] > target].head(1)
+        if pre.empty or nxt.empty:
+            break
+
+        pre_id = str(pre["instrument_id"].iloc[0])
+        nxt_row = nxt.iloc[0]
+        nxt_id = str(nxt_row["instrument_id"])
+
+        cut_ts = nxt_row["expiration"] - pd.Timedelta(days=maturity_days)
+        d1_exp = cut_ts.tz_convert("UTC").date() + datetime.timedelta(days=1)
+
+        d1_live = end
+        upcoming = df[df["ts_recv"] > pd.Timestamp(current, tz="UTC")]
+        if not upcoming.empty:
+            next_live_ts = upcoming["ts_recv"].min()
+            next_live_date = next_live_ts.date()
+            if next_live_date < min(d1_exp, end):
+                target2 = pd.Timestamp(next_live_date, tz="UTC") + pd.Timedelta(days=maturity_days)
+                live2 = df[df["ts_recv"] <= pd.Timestamp(next_live_date, tz="UTC")]
+                pre2 = live2[live2["expiration"] <= target2].tail(1)
+                nxt2 = live2[live2["expiration"] > target2].head(1)
+                if not pre2.empty and not nxt2.empty:
+                    pre2_id = str(pre2["instrument_id"].iloc[0])
+                    nxt2_id = str(nxt2["instrument_id"].iloc[0])
+                    if (pre2_id, nxt2_id) != (pre_id, nxt_id):
+                        d1_live = next_live_date
+
+        d1 = min(d1_exp, d1_live, end)
+        if d1 <= current:
+            d1 = min(current + datetime.timedelta(days=1), end)
+            if d1 <= current:
+                break
+
+        results.append({"d0": str(current), "d1": str(d1), "p": pre_id, "n": nxt_id})
+        current = d1
+
+    return results
