@@ -23,3 +23,5 @@ from .time import (
     tz_chicago as tz_chicago,
     us_business_day as us_business_day,
 )
+from .constant_maturity_splice import constant_maturity_splice as constant_maturity_splice
+from .roll_spec import get_roll_spec as get_roll_spec

@@ -35,6 +35,9 @@ from io import StringIO
 import databento as db
 import pandas as pd
 import pytest
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 
 from finm37000 import (
     constant_maturity_splice,
