@@ -23,3 +23,19 @@ from .time import (
     tz_chicago as tz_chicago,
     us_business_day as us_business_day,
 )
+
+
+from .continuous import (
+    get_roll_spec,
+    constant_maturity_splice,
+)
+
+# If __all__ exists, append these names; otherwise create it.
+try:
+    __all__  # type: ignore[name-defined]
+except NameError:
+    __all__ = []
+
+for _name in ("get_roll_spec", "constant_maturity_splice"):
+    if _name not in __all__:
+        __all__.append(_name)
