@@ -185,3 +185,7 @@ def multiplicative_splice(
     with_adjustment[adjustments.name] = cumulative_adjustment
     new_columns = df.columns.tolist() + [adjustments.name]
     return with_adjustment.reset_index()[new_columns]
+
+def get_roll_spec(symbol: str, instrument_defs, *, start, end):
+    # TODO: Return a list of dicts with keys {'d0','d1','p','n'} as per tests.
+    raise NotImplementedError("Implement get_roll_spec")
