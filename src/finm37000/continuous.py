@@ -3,6 +3,8 @@
 from typing import Optional
 
 import pandas as pd
+import datetime
+from typing import List, Dict, Any
 
 
 def _splice_unadjusted(
@@ -185,3 +187,198 @@ def multiplicative_splice(
     with_adjustment[adjustments.name] = cumulative_adjustment
     new_columns = df.columns.tolist() + [adjustments.name]
     return with_adjustment.reset_index()[new_columns]
+
+def get_roll_spec(
+    symbol: str,
+    instrument_df: pd.DataFrame,
+    start: datetime.date,
+    end: datetime.date,
+) -> List[Dict[str, str]]:
+    try:
+        maturity_days = int(symbol.split(".")[-1])
+        maturity_delta = pd.Timedelta(days=maturity_days)
+    except (ValueError, IndexError):
+        raise ValueError(f"Could not parse maturity days from symbol '{symbol}'")
+
+    futures_df = instrument_df[
+        instrument_df["instrument_class"] == "F"
+    ].copy()
+    
+    futures_df["expiration_date"] = pd.to_datetime(
+        futures_df["expiration"]
+    ).dt.date
+    futures_df["ts_recv_date"] = pd.to_datetime(
+        futures_df["ts_recv"]
+    ).dt.date
+    
+    futures_df = futures_df.sort_values(by="expiration_date")
+
+    exp_dates = pd.to_datetime(futures_df["expiration_date"])
+    roll_dates = (exp_dates + pd.Timedelta(days=1)).dt.date
+    
+    roll_dates = roll_dates[(roll_dates > start) & (roll_dates < end)]
+
+    list_dates = futures_df["ts_recv_date"]
+    list_dates = list_dates[(list_dates > start) & (list_dates < end)]
+
+    event_dates = sorted(
+        list(set([start] + list(roll_dates) + list(list_dates)))
+    )
+    
+    final_specs: List[Dict[str, str]] = []
+
+    for d0 in event_dates:
+        available_contracts = futures_df[
+            (futures_df["ts_recv_date"] <= d0)
+            & (futures_df["expiration_date"] > d0)
+        ]
+
+        if available_contracts.empty:
+            continue
+
+        target_maturity_date = d0 + maturity_delta
+
+        before = available_contracts[
+            available_contracts["expiration_date"] <= target_maturity_date
+        ]
+        after = available_contracts[
+            available_contracts["expiration_date"] > target_maturity_date
+        ]
+
+        if before.empty or after.empty:
+            continue
+
+        p_contract = before.iloc[-1]
+        n_contract = after.iloc[0]
+
+        current_pair = (
+            str(p_contract["instrument_id"]),
+            str(n_contract["instrument_id"]),
+        )
+
+        if not final_specs or current_pair != (
+            final_specs[-1]["p"],
+            final_specs[-1]["n"],
+        ):
+            if final_specs:
+                final_specs[-1]["d1"] = d0.strftime("%Y-%m-%d")
+
+            final_specs.append(
+                {
+                    "d0": d0.strftime("%Y-%m-%d"),
+                    "p": current_pair[0],
+                    "n": current_pair[1],
+                    "d1": end.strftime(
+                        "%Y-%m-%d"
+                    ),
+                }
+            )
+
+    return final_specs
+
+
+def constant_maturity_splice(
+    symbol: str,
+    roll_spec: List[Dict[str, str]],
+    all_data: pd.DataFrame,
+    date_col: str,
+    price_col: str,
+) -> pd.DataFrame:
+    try:
+        maturity_days = int(symbol.split(".")[-1])
+        maturity_delta = pd.Timedelta(days=maturity_days)
+    except (ValueError, IndexError):
+        raise ValueError(f"Could not parse maturity days from symbol '{symbol}'")
+
+    all_data[date_col] = pd.to_datetime(all_data[date_col], utc=True)
+    all_data["expiration"] = pd.to_datetime(all_data["expiration"], utc=True)
+
+    segment_dfs = []
+
+    for segment in roll_spec:
+        d0 = pd.to_datetime(segment["d0"], utc=True)
+        d1 = pd.to_datetime(segment["d1"], utc=True)
+        p_id = int(segment["p"])
+        n_id = int(segment["n"])
+
+        df_p = all_data[all_data["instrument_id"] == p_id].copy()
+        df_n = all_data[all_data["instrument_id"] == n_id].copy()
+
+        df_p = df_p.rename(
+            columns={
+                price_col: "pre_price",
+                "instrument_id": "pre_id",
+                "expiration": "pre_expiration",
+            }
+        )
+        df_n = df_n.rename(
+            columns={
+                price_col: "next_price",
+                "instrument_id": "next_id",
+                "expiration": "next_expiration",
+            }
+        )
+
+        merged_df = pd.merge(
+            df_p[[date_col, "pre_price", "pre_id", "pre_expiration"]],
+            df_n[[date_col, "next_price", "next_id", "next_expiration"]],
+            on=date_col,
+            how="inner",
+        )
+
+        segment_df = merged_df[
+            (merged_df[date_col] >= d0) & (merged_df[date_col] < d1)
+        ].copy()
+
+        if segment_df.empty:
+            continue
+
+        t = segment_df[date_col]
+        T_p = segment_df["pre_expiration"]
+        T_n = segment_df["next_expiration"]
+        
+        target_maturity = t + maturity_delta
+
+        numerator = (T_n - target_maturity).dt.total_seconds()
+        denominator = (T_n - T_p).dt.total_seconds()
+        
+        pre_weight = numerator / denominator
+        segment_df["pre_weight"] = pre_weight
+
+        segment_df[symbol] = (
+            pre_weight * segment_df["pre_price"]
+            + (1 - pre_weight) * segment_df["next_price"]
+        )
+
+        segment_dfs.append(segment_df)
+
+    if not segment_dfs:
+        return pd.DataFrame(
+            columns=[
+                date_col,
+                "pre_price",
+                "pre_id",
+                "pre_expiration",
+                "next_price",
+                "next_id",
+                "next_expiration",
+                "pre_weight",
+                symbol,
+            ]
+        )
+
+    final_df = pd.concat(segment_dfs, ignore_index=True)
+
+    expected_cols = [
+        date_col,
+        "pre_price",
+        "pre_id",
+        "pre_expiration",
+        "next_price",
+        "next_id",
+        "next_expiration",
+        "pre_weight",
+        symbol,
+    ]
+    
+    return final_df[expected_cols]
