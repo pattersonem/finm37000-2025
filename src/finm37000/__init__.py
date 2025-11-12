@@ -6,6 +6,7 @@ from .agg import (
 from .continuous import (
     additive_splice as additive_splice,
     multiplicative_splice as multiplicative_splice,
+    constant_maturity_splice as constant_maturity_splice, # modify
 )
 from .db_env_util import (
     temp_env as temp_env,
@@ -15,6 +16,7 @@ from .futures import (
     favorite_def_cols as favorite_def_cols,
     get_all_legs_on as get_all_legs_on,
     get_official_stats as get_official_stats,
+    get_roll_spec as get_roll_spec, # modify
 )
 from .time import (
     as_ct as as_ct,

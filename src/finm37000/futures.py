@@ -1,7 +1,7 @@
 """Extract futures data from databento objects."""
 
 import datetime
-
+import numpy as np # modify
 import databento as db
 import pandas as pd
 
@@ -105,3 +105,117 @@ def get_all_legs_on(
     )
     stats = get_official_stats(raw_stats.to_df(), leg_defs.reset_index())
     return stats, leg_defs
+
+
+
+# modify
+def _parse_cm_days(symbol: str) -> int:
+    """
+    Parse a constant-maturity symbol like 'SR3.cm.182' -> 182 (days).
+    Falls back to raising ValueError if not found.
+    """
+    import re
+    m = re.search(r"\.cm\.(\d+)$", symbol)
+    if not m:
+        raise ValueError(f"Could not parse constant-maturity days from symbol: {symbol}")
+    return int(m.group(1))
+
+
+def get_roll_spec(
+    symbol: str,
+    instrument_df: pd.DataFrame,
+    *,
+    start: datetime.date,
+    end: datetime.date,
+) -> list[dict[str, str]]:
+    """
+    Build a roll specification for a constant-maturity series.
+
+    For each calendar day t in [start, end), choose the pair (pre, next) of
+    futures expirations whose expiration dates straddle t + CM_days:
+        expiration[pre] <= (t + CM_days) < expiration[next]
+
+    Only instruments with instrument_class == 'F' (futures legs) are considered.
+    Contracts are only eligible on a date t if their ts_recv <= t (i.e., they
+    have become "live" in the definitions by that date).
+
+    Adjacent days with the same (pre, next) are coalesced into segments with
+    dicts of the form:
+        {'d0': 'YYYY-MM-DD', 'd1': 'YYYY-MM-DD', 'p': '<pre_id>', 'n': '<next_id>'}
+    where d1 is exclusive (left-inclusive, right-exclusive).
+    """
+    # Ensure expected columns exist
+    cols = {c.lower(): c for c in instrument_df.columns}
+    exp_col = cols.get("expiration")
+    cls_col = cols.get("instrument_class")
+    recv_col = cols.get("ts_recv")
+    id_col  = cols.get("instrument_id")
+    if not all([exp_col, cls_col, recv_col, id_col]):
+        raise ValueError("instrument_df must have columns: instrument_id, expiration, instrument_class, ts_recv")
+
+    cm_days = _parse_cm_days(symbol)
+    # Filter to futures legs only
+    df = instrument_df.copy()
+    df = df[df[cls_col].astype(str).str.upper().str.startswith("F")]
+    # Normalize types/timezones
+    df[exp_col] = pd.to_datetime(df[exp_col], utc=True)
+    df[recv_col] = pd.to_datetime(df[recv_col], utc=True)
+
+    # Daily loop over [start, end)
+    days = pd.date_range(start=start, end=end, inclusive="left", tz="UTC")
+    segments: list[dict[str, str]] = []
+
+    last_pair: tuple[str, str] | None = None
+    seg_start: pd.Timestamp | None = None
+
+    for t in days:
+        # Instruments visible as of this date
+        visible = df[df[recv_col] <= t]
+        if visible.empty:
+            continue
+        # Sorted by expiration ascending
+        visible = visible.sort_values(exp_col)
+        target = t + pd.Timedelta(days=cm_days)
+
+        # find pre, next so that exp_pre <= target < exp_next
+        exps = visible[exp_col].to_numpy()
+        ids  = visible[id_col].to_numpy()
+
+        # locate index of first expiration strictly greater than target
+        idx_next = int(np.searchsorted(exps, target, side="right"))
+        # idx_next must be at least 1 to have a pre
+        idx_next = max(1, min(idx_next, len(exps)-1))
+        idx_pre = idx_next - 1
+
+        pre_id = str(ids[idx_pre])
+        nxt_id = str(ids[idx_next])
+
+        pair = (pre_id, nxt_id)
+        if last_pair is None:
+            last_pair = pair
+            seg_start = t
+        elif pair != last_pair:
+            # close previous segment
+            segments.append(
+                {
+                    "d0": seg_start.date().isoformat(),
+                    "d1": t.date().isoformat(),
+                    "p": last_pair[0],
+                    "n": last_pair[1],
+                }
+            )
+            last_pair = pair
+            seg_start = t
+
+    # close tail segment (if any days iterated)
+    if last_pair is not None and seg_start is not None:
+        segments.append(
+            {
+                "d0": seg_start.date().isoformat(),
+                "d1": end.isoformat(),  # exclusive
+                "p": last_pair[0],
+                "n": last_pair[1],
+            }
+        )
+
+    return segments

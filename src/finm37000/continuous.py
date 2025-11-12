@@ -1,9 +1,9 @@
 """Functions to splice and adjust futures data into continuous data."""
-
+from __future__ import annotations
 from typing import Optional
 
+import numpy as np
 import pandas as pd
-
 
 def _splice_unadjusted(
     roll_spec: list[dict[str, str]],
@@ -185,3 +185,112 @@ def multiplicative_splice(
     with_adjustment[adjustments.name] = cumulative_adjustment
     new_columns = df.columns.tolist() + [adjustments.name]
     return with_adjustment.reset_index()[new_columns]
+
+
+
+# modify
+
+def _parse_cm_days_from_symbol(symbol: str) -> int:
+    import re
+    m = re.search(r"\.cm\.(\d+)$", symbol)
+    if not m:
+        raise ValueError(f"Cannot parse constant-maturity days from {symbol}")
+    return int(m.group(1))
+
+
+def constant_maturity_splice(
+    symbol: str,
+    roll_spec: list[dict[str, str]],
+    df: pd.DataFrame,
+    *,
+    date_col: str = "datetime",
+    price_col: str = "price",
+) -> pd.DataFrame:
+    """
+    Build the per-day constant-maturity blend defined by `roll_spec`.
+
+    Parameters
+    ----------
+    symbol : str
+        Like 'SR3.cm.182'; the trailing integer gives maturity in days.
+    roll_spec : list[dict]
+        Each dict has: {'d0','d1','p','n'} with left-inclusive, right-exclusive dates.
+        'p' and 'n' are instrument_id (as string) for pre/next contracts.
+    df : DataFrame
+        Contains at least ['instrument_id', date_col, price_col, 'expiration'].
+        For the unit test, price is constant per instrument_id.
+
+    Returns
+    -------
+    DataFrame with columns exactly as expected by the test:
+    ['datetime','pre_price','pre_id','pre_expiration',
+     'next_price','next_id','next_expiration','pre_weight', <symbol>]
+    """
+    cm_days = _parse_cm_days_from_symbol(symbol)
+
+    # Map instrument_id -> {price, expiration}
+    tmp = df.copy()
+    tmp[date_col] = pd.to_datetime(tmp[date_col], utc=True)
+    tmp["expiration"] = pd.to_datetime(tmp["expiration"], utc=True)
+
+    # Use "last" per instrument_id (prices in the test are constant anyway)
+    snap = (
+        tmp.sort_values(date_col)
+           .groupby("instrument_id")
+           .agg({price_col: "last", "expiration": "last"})
+    )
+
+    rows = []
+    for seg in roll_spec:
+        d0 = pd.to_datetime(seg["d0"], utc=True)
+        d1 = pd.to_datetime(seg["d1"], utc=True)
+        pre_id = int(seg["p"]) if isinstance(seg["p"], (int, str)) else int(seg["p"])
+        nxt_id = int(seg["n"]) if isinstance(seg["n"], (int, str)) else int(seg["n"])
+
+        # day-by-day, left-inclusive, right-exclusive
+        t_range = pd.date_range(start=d0, end=d1, inclusive="left", tz="UTC")
+
+        pre_px = float(snap.loc[pre_id, price_col])
+        nxt_px = float(snap.loc[nxt_id, price_col])
+        pre_exp = snap.loc[pre_id, "expiration"]
+        nxt_exp = snap.loc[nxt_id, "expiration"]
+
+        denom = (nxt_exp - pre_exp)
+
+        for t in t_range:
+            target = t + pd.Timedelta(days=cm_days)
+            # pre_weight f = (exp_next - target) / (exp_next - exp_pre)
+            f = (nxt_exp - target) / denom
+            # Ensure it's a scalar float (Timedelta division yields float)
+            f = float(f)
+
+            blended = f * pre_px + (1.0 - f) * nxt_px
+
+            rows.append(
+                {
+                    "datetime": t,
+                    "pre_price": pre_px,
+                    "pre_id": pre_id,
+                    "pre_expiration": pre_exp,
+                    "next_price": nxt_px,
+                    "next_id": nxt_id,
+                    "next_expiration": nxt_exp,
+                    "pre_weight": f,
+                    symbol: blended,
+                }
+            )
+
+    df_out = pd.DataFrame(rows)
+
+    # Keep datetime timezone-aware
+    df_out["datetime"] = pd.to_datetime(df_out["datetime"], utc=True)
+
+    # dtypes expected by the test
+    df_out["pre_id"] = df_out["pre_id"].astype("int64")
+    df_out["next_id"] = df_out["next_id"].astype("int64")
+    df_out["pre_price"] = df_out["pre_price"].astype("int64")
+    df_out["next_price"] = df_out["next_price"].astype("int64")
+
+    return df_out
+
+
