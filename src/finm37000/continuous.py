@@ -1,5 +1,6 @@
 """Functions to splice and adjust futures data into continuous data."""
 
+import datetime as _dt
 from typing import Optional
 
 import pandas as pd
@@ -186,6 +187,99 @@ def multiplicative_splice(
     new_columns = df.columns.tolist() + [adjustments.name]
     return with_adjustment.reset_index()[new_columns]
 
-def get_roll_spec(symbol: str, instrument_defs, *, start, end):
-    # TODO: Return a list of dicts with keys {'d0','d1','p','n'} as per tests.
-    raise NotImplementedError("Implement get_roll_spec")
+
+def get_roll_spec(
+    symbol: str,
+    instrument_defs: pd.DataFrame,
+    *,
+    start: _dt.date | str | pd.Timestamp,
+    end: _dt.date | str | pd.Timestamp,
+) -> list[dict[str, str]]:
+    """Build roll segments for a constant-maturity symbol.
+
+    For each UTC date d in [start, end), choose two live outright futures whose
+    expirations straddle d + maturity_days and coalesce consecutive days with
+    the same pair into one segment.
+
+    Args:
+        symbol: Constant-maturity symbol of the form ``'<prod>.cm.<days>'``.
+        instrument_defs: DataFrame with at least columns
+            ``['instrument_id','instrument_class','expiration','ts_recv']``.
+            Timestamps may be naive or tz-aware; they are coerced to UTC.
+        start: Start date (inclusive) for segmenting.
+        end: End date (exclusive) for segmenting.
+
+    Returns:
+        List of dicts with keys:
+        ``{'d0': 'YYYY-MM-DD', 'd1': 'YYYY-MM-DD', 'p': '<pre_id>', 'n': '<next_id>'}``
+    """
+    # Parse maturity days from '<product>.cm.<days>'
+    try:
+        maturity_days = int(str(symbol).split(".")[-1])
+    except Exception as exc:
+        msg = "Could not parse maturity days from symbol '{sym}'".format(sym=symbol)
+        raise ValueError(msg) from exc
+
+    # Normalize inputs
+    df = instrument_defs.copy()
+    if not isinstance(df, pd.DataFrame):
+        df = pd.DataFrame(df)
+
+    # Keep outright futures only and coerce to UTC
+    df = df[df["instrument_class"] == "F"].copy()
+    df["expiration"] = pd.to_datetime(df["expiration"], utc=True)
+    df["ts_recv"] = pd.to_datetime(df["ts_recv"], utc=True)
+    start_date = pd.to_datetime(start).date()
+    end_date = pd.to_datetime(end).date()
+    if start_date >= end_date:
+        return []
+
+    df = df.sort_values(["expiration", "instrument_id"]).reset_index(drop=True)
+    maturity = pd.Timedelta(days=maturity_days)
+    segments: list[dict[str, str]] = []
+    current_pair: tuple[int, int] | None = None
+    seg_start: pd.Timestamp | None = None
+    for d in pd.date_range(start=start_date, end=end_date, inclusive="left", tz="UTC"):
+        # Only contracts live by this date
+        d_date = d.date()
+        live = df[df["ts_recv"].dt.date <= d_date]
+        if live.empty:
+            continue
+
+        target = d + maturity
+        pre = live[live["expiration"] <= target].tail(1)
+        nxt = live[live["expiration"] > target].head(1)
+        if pre.empty or nxt.empty:
+            continue
+
+        pre_id = int(pre["instrument_id"].iloc[0])
+        nxt_id = int(nxt["instrument_id"].iloc[0])
+        pair = (pre_id, nxt_id)
+        if current_pair is None:
+            current_pair = pair
+            seg_start = d
+        elif pair != current_pair:
+            assert seg_start is not None
+            segments.append(
+                {
+                    "d0": seg_start.date().isoformat(),
+                    "d1": d.date().isoformat(),
+                    "p": str(current_pair[0]),
+                    "n": str(current_pair[1]),
+                }
+            )
+            current_pair = pair
+            seg_start = d
+
+    # Close final segment at end
+    if current_pair is not None and seg_start is not None:
+        segments.append(
+            {
+                "d0": seg_start.date().isoformat(),
+                "d1": pd.to_datetime(end_date).date().isoformat(),
+                "p": str(current_pair[0]),
+                "n": str(current_pair[1]),
+            }
+        )
+
+    return segments
