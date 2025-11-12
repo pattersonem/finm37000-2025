@@ -32,3 +32,5 @@ venv/
 
 # IDEs
 .idea/
+.DS_Store
+**/.DS_Store
