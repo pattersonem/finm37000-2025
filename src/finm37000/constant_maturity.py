@@ -23,7 +23,7 @@ def get_roll_spec(
     current_date = start
     last_pair = None
     
-    while current_date <= end:
+    while current_date < end:
         target_maturity = pd.Timestamp(current_date).tz_localize("UTC") + maturity_delta
         
         # Filter instruments that are live at current_date
@@ -59,14 +59,18 @@ def get_roll_spec(
             # Close the previous spec at current_date
             roll_spec[-1]["d1"] = current_date.isoformat()
         
+
         # If this is a new pair, start a new spec
         if current_pair != last_pair:
-            roll_spec.append({
-                "d0": current_date.isoformat(),
-                "d1": end.isoformat(),  # Temporary, will be updated
-                "p": prev_id,
-                "n": next_id,
-            })
+            # Don't start a new spec if we're already at the end
+            if current_date < end:
+                roll_spec.append({
+                    "d0": current_date.isoformat(),
+                    "d1": end.isoformat(),  # Temporary, will be updated
+                    "p": prev_id,
+                    "n": next_id,
+                })
+                last_pair = current_pair
             last_pair = current_pair
         
         current_date += datetime.timedelta(days=1)
