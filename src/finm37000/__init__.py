@@ -6,6 +6,8 @@ from .agg import (
 from .continuous import (
     additive_splice as additive_splice,
     multiplicative_splice as multiplicative_splice,
+    constant_maturity_splice as constant_maturity_splice,
+    get_roll_spec as get_roll_spec,
 )
 from .db_env_util import (
     temp_env as temp_env,
