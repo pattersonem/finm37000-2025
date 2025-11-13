@@ -1,5 +1,6 @@
 """Functions to splice and adjust futures data into continuous data."""
 
+from datetime import date
 from typing import Optional
 
 import pandas as pd
@@ -185,3 +186,67 @@ def multiplicative_splice(
     with_adjustment[adjustments.name] = cumulative_adjustment
     new_columns = df.columns.tolist() + [adjustments.name]
     return with_adjustment.reset_index()[new_columns]
+
+
+def get_roll_spec(symbol: str, instrument_df: pd.DataFrame, start: date, end: date) -> list[dict]:
+    roll_periods = []
+
+    # Filter instrument_df for futures only and within the date range
+    parsed_symbol = symbol.split('.')
+    product = parsed_symbol[0]
+    maturity_days = int(parsed_symbol[2])
+
+    futures = instrument_df.copy()
+    futures['ts_recv'] = futures['ts_recv'].dt.date
+    futures['expiration'] = futures['expiration'].dt.date
+    futures = (
+        futures[
+            (futures['raw_symbol'].str.startswith(product)) &
+            (futures['instrument_class'] == 'F') & 
+            (futures['ts_recv'] <= end)
+        ]
+    ).sort_values('expiration')
+
+    d0 = start
+    d1 = start
+
+    while d1 < end:
+        period = {}
+        period['d0'] = d0.isoformat()
+
+        # add maturity_days to d0 to get "target"
+        target = d0 + pd.Timedelta(days=maturity_days)
+        far_futures = futures[(futures['expiration'] >= target)]
+        if far_futures.empty:
+            break
+        far_future = far_futures[far_futures['ts_recv'] <= d0].iloc[0]
+
+        near_futures = futures[(futures['expiration'] < target)]
+        if near_futures.empty:
+            break
+        near_future = near_futures.iloc[-1]
+
+        # expiration cut off
+        d1 = min(end, far_future['expiration'] - pd.Timedelta(days=maturity_days-1))
+
+        # availability cut off
+        newly_available = far_futures[
+            (far_futures['instrument_id'] < far_future['instrument_id']) &
+            (far_futures['ts_recv'] > d0) &
+            (far_futures['ts_recv'] < d1)
+        ]
+        if not newly_available.empty:
+            d1 = min(d1, newly_available['ts_recv'].min())
+
+        period['d1'] = d1.isoformat()
+        period['p'] = str(near_future['instrument_id'])
+        period['n'] = str(far_future['instrument_id'])
+        roll_periods.append(period)
+
+        d0 = d1
+
+    return roll_periods
+
+
+def constant_maturity_splice(df: pd.DataFrame, instrument_defs: pd.DataFrame, roll_spec: list[dict]) -> pd.DataFrame:
+    pass
