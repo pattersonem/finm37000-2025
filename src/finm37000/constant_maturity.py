@@ -1,5 +1,5 @@
 import pandas as pd
-
+from datetime import timedelta
 
 def _parse_maturity_days(symbol: str) -> int:
     """
@@ -58,7 +58,7 @@ def get_roll_spec(symbol: str, instrument_df: pd.DataFrame, start, end):
 
         # Convert to simple dates
         d0 = d0_candidate
-        d1 = d1_candidate
+        d1 = d1_candidate + timedelta(days=1)
 
         # We only keep overlap with user range
         seg_start = max(current_date, d0)
