@@ -119,7 +119,7 @@ def test_get_roll_spec() -> None:
         assert spec == expected[i], f"Spec {i} mismatch: {spec} != {expected[i]}"
 
 
-def test_constant_maturity_splice() -> None:
+def test_() -> None:
     symbol = "SR3.cm.182"
     maturity_days = pd.Timedelta(days=182)
     roll_spec = [
