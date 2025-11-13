@@ -187,14 +187,17 @@ def multiplicative_splice(
     new_columns = df.columns.tolist() + [adjustments.name]
     return with_adjustment.reset_index()[new_columns]
 
+def parse_product_and_maturity(symbol: str) -> tuple[str, int]:
+    parsed_symbol = symbol.split('.')
+    product = parsed_symbol[0]
+    maturity_days = int(parsed_symbol[2])
+    return product, maturity_days
 
 def get_roll_spec(symbol: str, instrument_df: pd.DataFrame, start: date, end: date) -> list[dict]:
     roll_periods = []
 
     # Filter instrument_df for futures only and within the date range
-    parsed_symbol = symbol.split('.')
-    product = parsed_symbol[0]
-    maturity_days = int(parsed_symbol[2])
+    product, maturity_days = parse_product_and_maturity(symbol)
 
     futures = instrument_df.copy()
     futures['ts_recv'] = futures['ts_recv'].dt.date
@@ -248,5 +251,60 @@ def get_roll_spec(symbol: str, instrument_df: pd.DataFrame, start: date, end: da
     return roll_periods
 
 
-def constant_maturity_splice(df: pd.DataFrame, instrument_defs: pd.DataFrame, roll_spec: list[dict]) -> pd.DataFrame:
-    pass
+def constant_maturity_splice(symbol: str, roll_spec: list[dict], all_data: pd.DataFrame, date_col: str = "datetime", price_col: str = "price") -> pd.DataFrame:
+
+    _, maturity_days = parse_product_and_maturity(symbol)
+    maturity_timedelta = pd.Timedelta(days=maturity_days)
+
+    out_cols = [date_col, "pre_price", "pre_id", "pre_expiration",
+                "next_price", "next_id", "next_expiration", "pre_weight", symbol]
+
+    data_by_instr = all_data.copy().groupby("instrument_id")
+
+    segments = []
+    for spec in roll_spec:
+        d0, d1 = spec['d0'], spec['d1']
+        pre = int(spec['p'])
+        pre_data_raw = data_by_instr.get_group(pre)
+        if pre_data_raw.empty:
+            raise ValueError(f"No data for instrument {pre}")
+
+        nex = int(spec['n'])
+        nex_data_raw = data_by_instr.get_group(nex)
+        if nex_data_raw.empty:
+            raise ValueError(f"No data for instrument {nex}")
+
+        pre_data = (
+            pre_data_raw[(pre_data_raw[date_col] >= d0) & (pre_data_raw[date_col] < d1)].copy()
+        ).rename(columns={
+            price_col: "pre_price",
+            "instrument_id": "pre_id",
+            "expiration": "pre_expiration"
+        })
+
+        nex_data = (
+            nex_data_raw[(nex_data_raw[date_col] >= d0) & (nex_data_raw[date_col] < d1)].copy()
+        ).rename(columns={
+            price_col: "next_price",
+            "instrument_id": "next_id",
+            "expiration": "next_expiration"}
+        )
+
+        merged_data = pre_data.merge(
+            nex_data,
+            on=date_col,
+            how='inner'
+        )
+
+        merged_data["pre_weight"] = (
+            (merged_data['next_expiration'] - (merged_data[date_col] + maturity_timedelta)) /
+            (merged_data['next_expiration'] - merged_data['pre_expiration'])
+        )
+        merged_data[symbol] = (
+            merged_data["pre_weight"] * merged_data["pre_price"] +
+                (1 - merged_data["pre_weight"]) * merged_data["next_price"]
+        )
+
+        segments.append(merged_data[out_cols])
+
+    return pd.concat(segments, ignore_index=True)

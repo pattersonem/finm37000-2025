@@ -208,7 +208,7 @@ def test_constant_maturity_splice() -> None:
     pd.testing.assert_frame_equal(actual, expected)
 
 
-@pytest.mark.skip(reason="Integration testing against real data client.")
+# @pytest.mark.skip(reason="Integration testing against real data client.")
 def test_real_data() -> None:
     with temp_env(DATABENTO_API_KEY=get_databento_api_key()):
         client = db.Historical()
