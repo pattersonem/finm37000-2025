@@ -10,18 +10,7 @@ def get_roll_spec(
     start: datetime.date,
     end: datetime.date,
 ) -> list[dict[str, str]]:
-    """Generate roll specification for constant maturity futures.
-    
-    Args:
-        symbol: Constant maturity symbol (e.g., "SR3.cm.182")
-        instrument_df: DataFrame with instrument definitions
-        start: Start date for the roll specification
-        end: End date for the roll specification
-    
-    Returns:
-        List of dicts with keys d0, d1, p (previous), n (next)
-    """
-    # Extract maturity days from symbol
+    """Generate roll specification for constant maturity futures."""
     maturity_days = int(symbol.split(".")[-1])
     maturity_delta = pd.Timedelta(days=maturity_days)
     
@@ -32,6 +21,7 @@ def get_roll_spec(
     
     roll_spec = []
     current_date = start
+    last_pair = None
     
     while current_date <= end:
         target_maturity = pd.Timestamp(current_date).tz_localize("UTC") + maturity_delta
@@ -62,27 +52,28 @@ def get_roll_spec(
         
         prev_id = str(prev_contract["instrument_id"].iloc[0])
         next_id = str(next_contract["instrument_id"].iloc[0])
-        prev_exp = prev_contract["expiration"].iloc[0]
+        current_pair = (prev_id, next_id)
         
-        # The pair is valid until the day after prev contract expires
-        next_roll_date = prev_exp.date() + datetime.timedelta(days=1)
+        # If pair changed, close previous spec and start new one
+        if last_pair is not None and current_pair != last_pair:
+            # Close the previous spec at current_date
+            roll_spec[-1]["d1"] = current_date.isoformat()
         
-        # Don't go past the end date
-        if next_roll_date > end:
-            next_roll_date = end + datetime.timedelta(days=1)
-        
-        # Add new spec or extend existing one
-        if not roll_spec or roll_spec[-1]["p"] != prev_id or roll_spec[-1]["n"] != next_id:
+        # If this is a new pair, start a new spec
+        if current_pair != last_pair:
             roll_spec.append({
                 "d0": current_date.isoformat(),
-                "d1": next_roll_date.isoformat(),
+                "d1": (end + datetime.timedelta(days=1)).isoformat(),  # Will be updated
                 "p": prev_id,
                 "n": next_id,
             })
-        else:
-            roll_spec[-1]["d1"] = next_roll_date.isoformat()
+            last_pair = current_pair
         
-        current_date = next_roll_date
+        current_date += datetime.timedelta(days=1)
+    
+    # Ensure last spec ends at end+1
+    if roll_spec:
+        roll_spec[-1]["d1"] = (end + datetime.timedelta(days=1)).isoformat()
     
     return roll_spec
 
