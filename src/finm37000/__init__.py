@@ -16,6 +16,11 @@ from .futures import (
     get_all_legs_on as get_all_legs_on,
     get_official_stats as get_official_stats,
 )
+
+from .constant_maturity import (
+    constant_maturity_splice as constant_maturity_splice,
+)
+
 from .time import (
     as_ct as as_ct,
     get_cme_next_session_end as get_cme_next_session_end,
