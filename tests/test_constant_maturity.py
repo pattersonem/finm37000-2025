@@ -37,7 +37,7 @@ import pandas as pd
 import pytest
 
 from finm37000 import (
-    constant_maturity_splice,
+    additive_splice,
     get_databento_api_key,
     get_roll_spec,
     temp_env,
