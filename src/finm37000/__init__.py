@@ -1,5 +1,13 @@
 """A package to support FINM37000."""
 
+from .constant_maturity import constant_maturity_splice
+from .roll_spec import get_roll_spec
+
+__all__ = [
+    "constant_maturity_splice",
+    "get_roll_spec",
+]
+
 from .agg import (
     make_ohlcv as make_ohlcv,
 )
