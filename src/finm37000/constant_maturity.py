@@ -63,7 +63,7 @@ def get_roll_spec(
         if current_pair != last_pair:
             roll_spec.append({
                 "d0": current_date.isoformat(),
-                "d1": (end + datetime.timedelta(days=1)).isoformat(),  # Will be updated
+                "d1": end.isoformat(),  # Temporary, will be updated
                 "p": prev_id,
                 "n": next_id,
             })
@@ -71,9 +71,12 @@ def get_roll_spec(
         
         current_date += datetime.timedelta(days=1)
     
-    # Ensure last spec ends at end+1
+    # Ensure last spec ends at end (not inclusive)
     if roll_spec:
-        roll_spec[-1]["d1"] = (end + datetime.timedelta(days=1)).isoformat()
+        # If last spec goes beyond end, trim it
+        last_d1 = datetime.date.fromisoformat(roll_spec[-1]["d1"])
+        if last_d1 > end:
+            roll_spec[-1]["d1"] = end.isoformat()
     
     return roll_spec
 
