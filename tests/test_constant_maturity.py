@@ -4,11 +4,9 @@ futures prices. Producing such values in real cases would require a data
 source like a databento historical client, but for ease and speed of testing,
 we remove the dependence on the data source. There is an example integration
 test `test_real_data` that is skipped by default.
-
 The key components to build are `get_roll_spec` and `constant_maturity_splice`,
 which do not require the data source directly, only its outputs `instrument_defs`
 and `raw_data`.
-
 In this assignment, you need to build these components in your fork of `finm37000`
 package so that the following tests pass as part of running `python -m pytest`.
 You may change the tests if you find that my suggested API does not suit you,
@@ -18,12 +16,10 @@ method produces many fields that I
 do not use, and you may prefer to use different columns than I use in the
 fake test data, or you may prefer to work directly with `databento.DBNStore`
 rather than the `pandas.DataFrame`.
-
 There is some awkward code below to allow static type checking across Python
 versions (look for the `# type: ignore` comments or `sys.version_info`).
 You only need to support a single version with your tests, and you only
 need to get `pytest` to pass. You do not need to address type checking.
-
 You may want to test your implementation against real data in `test_real_data`,
 but it is not required.
 """
@@ -47,18 +43,14 @@ from finm37000 import (
 
 def test_get_roll_spec() -> None:
     """Confirm that get_roll_spec finds the right pairs.
-
     Pairs' expirations should straddle the date plus the number of
     maturity days.
-
     Include some red herring spreads in the instrument definitions
     as might be found in normal use cases. Also include contracts
     that become live during the requested range (e.g. SR3Q5 and
     SR3V5 as indicated by the ts_recv value).
-
     Databento gives datetimes in UTC, so that is what we are
     testing against.
-
     THIS TEST IS ONLY ACCURATE TO THE DATE. That is, the expiration
     time can be ignored for this exercise. Getting it right
     with the time as well is a little trickier.
