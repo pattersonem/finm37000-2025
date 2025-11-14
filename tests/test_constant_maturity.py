@@ -35,6 +35,17 @@ from io import StringIO
 import databento as db
 import pandas as pd
 import pytest
+import sys
+from pathlib import Path
+import os
+
+ROOT = Path(__file__).resolve().parents[1] 
+print(f"Project Root = {ROOT}")
+SRC = os.path.join(ROOT,"src")
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+# print(f"all sys.path = {sys.path}")
 
 from finm37000 import (
     constant_maturity_splice,
