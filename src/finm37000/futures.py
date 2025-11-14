@@ -105,3 +105,140 @@ def get_all_legs_on(
     )
     stats = get_official_stats(raw_stats.to_df(), leg_defs.reset_index())
     return stats, leg_defs
+
+# in src/finm37000/futures.py
+
+import datetime as _dt
+from typing import List, Dict
+
+import pandas as pd
+
+
+def _parse_cm_maturity(symbol: str) -> int:
+    """
+    Parse a constant-maturity symbol like 'SR3.cm.182' -> 182 (days).
+    """
+    try:
+        return int(symbol.split(".")[-1])
+    except Exception as exc:
+        raise ValueError(f"Could not parse maturity from symbol {symbol!r}") from exc
+
+
+def get_roll_spec(
+    symbol: str,
+    instrument_defs: pd.DataFrame,
+    start: _dt.date,
+    end: _dt.date,
+    expiration_col: str = "expiration",
+    ts_recv_col: str = "ts_recv",
+) -> List[Dict[str, str]]:
+    """
+    Building a roll specification for a constant-maturity future.
+
+    Parameters
+    ----------
+    symbol
+        Constant-maturity symbol like 'SR3.cm.182'.
+    instrument_defs
+        DataFrame with at least:
+        ['instrument_id', 'instrument_class', expiration_col, ts_recv_col].
+        Expirations and ts_recv should be datetime-like.
+    start, end
+        Date range for which to build the spec. `end` is treated as *exclusive*.
+    expiration_col, ts_recv_col
+        Column names for expiration and listing time.
+
+    Returns
+    -------
+    List of dictionaries with keys: 'd0', 'd1', 'p', 'n'.
+    Dates are ISO strings; 'p' and 'n' are instrument_id strings.
+    """
+    maturity_days = _parse_cm_maturity(symbol)
+
+    df = instrument_defs.copy()
+
+    df = df[df["instrument_class"] == "F"].copy()
+
+    df[expiration_col] = pd.to_datetime(df[expiration_col])
+    df[ts_recv_col] = pd.to_datetime(df[ts_recv_col])
+    df["ts_recv_date"] = df[ts_recv_col].dt.date
+
+    specs: List[Dict[str, str]] = []
+
+    current_pair = None
+    seg_start: _dt.date | None = None
+
+    cur = start
+    while cur < end:
+        # Instruments that are live by this date
+        avail = df[df["ts_recv_date"] <= cur]
+        if avail.empty or avail["instrument_id"].nunique() < 2:
+            raise RuntimeError(f"Not enough live instruments on {cur!r}")
+
+        # Sorting by expiration
+        avail_sorted = avail.sort_values(expiration_col)
+        exp_pairs = list(
+            zip(
+                avail_sorted["instrument_id"].astype(int).tolist(),
+                avail_sorted[expiration_col].tolist(),
+            )
+        )
+
+        target = (
+            pd.Timestamp(cur).tz_localize("UTC")
+            + pd.Timedelta(days=maturity_days)
+        )
+
+        pre_id = None
+        nxt_id = None
+
+        for inst_id, exp in exp_pairs:
+            if exp <= target:
+                pre_id = inst_id
+            elif exp > target and pre_id is not None:
+                nxt_id = inst_id
+                break
+
+        # Handling edge cases where target is outside expiration range
+        if pre_id is None:
+            # target before all expirations -> take first two
+            pre_id = exp_pairs[0][0]
+            nxt_id = exp_pairs[1][0]
+        elif nxt_id is None:
+            # target after all expirations -> take last two
+            pre_id = exp_pairs[-2][0]
+            nxt_id = exp_pairs[-1][0]
+
+        pair = (pre_id, nxt_id)
+
+        if current_pair is None:
+            current_pair = pair
+            seg_start = cur
+        elif pair != current_pair:
+            assert seg_start is not None
+            specs.append(
+                {
+                    "d0": seg_start.isoformat(),
+                    "d1": cur.isoformat(),
+                    "p": str(current_pair[0]),
+                    "n": str(current_pair[1]),
+                }
+            )
+            seg_start = cur
+            current_pair = pair
+
+        cur += _dt.timedelta(days=1)
+
+    
+    assert current_pair is not None
+    assert seg_start is not None
+    specs.append(
+        {
+            "d0": seg_start.isoformat(),
+            "d1": end.isoformat(),
+            "p": str(current_pair[0]),
+            "n": str(current_pair[1]),
+        }
+    )
+
+    return specs

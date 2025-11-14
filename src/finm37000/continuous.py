@@ -185,3 +185,133 @@ def multiplicative_splice(
     with_adjustment[adjustments.name] = cumulative_adjustment
     new_columns = df.columns.tolist() + [adjustments.name]
     return with_adjustment.reset_index()[new_columns]
+
+def _parse_cm_maturity(symbol: str) -> int:
+    """
+    Parse a constant-maturity symbol like 'SR3.cm.182'
+    """
+    try:
+        return int(symbol.split(".")[-1])
+    except Exception as exc:
+        raise ValueError(f"Could not parse maturity from symbol {symbol}")
+
+
+
+def constant_maturity_splice(
+    symbol: str,
+    roll_spec,
+    data: pd.DataFrame,
+    date_col: str = "datetime",
+    price_col: str = "close",
+    expiration_col: str = "expiration",
+) -> pd.DataFrame:
+    """
+    Build a constant-maturity price series by linearly interpolating between two
+    futures along a roll schedule.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns:
+        [date_col, 'pre_price', 'pre_id', 'pre_expiration',
+         'next_price', 'next_id', 'next_expiration',
+         'pre_weight', symbol]
+    """
+    maturity_days = _parse_cm_maturity(symbol)
+    maturity = pd.Timedelta(days=maturity_days)
+
+    df = data.copy()
+
+    df[date_col] = pd.to_datetime(df[date_col])
+    if df[date_col].dt.tz is None:
+        df[date_col] = df[date_col].dt.tz_localize("UTC")
+
+    df[expiration_col] = pd.to_datetime(df[expiration_col])
+    if df[expiration_col].dt.tz is None:
+        df[expiration_col] = df[expiration_col].dt.tz_localize("UTC")
+
+    expirations = (
+        df[["instrument_id", expiration_col]]
+        .drop_duplicates("instrument_id")
+        .set_index("instrument_id")[expiration_col]
+    )
+
+    segments: list[pd.DataFrame] = []
+
+    for r in roll_spec:
+        pre_id = int(r["p"])
+        nxt_id = int(r["n"])
+        d0 = r["d0"]
+        d1 = r["d1"]
+
+        # Date grid for this segment: [d0, d1) in UTC
+        t = pd.date_range(start=d0, end=d1, tz="UTC", inclusive="left")
+        if t.empty:
+            continue
+
+        t_start, t_end = t[0], t[-1]
+
+        # Get price series for the two contracts over this segment
+        pre_mask = (
+            (df["instrument_id"] == pre_id)
+            & (df[date_col] >= t_start)
+            & (df[date_col] <= t_end)
+        )
+        nxt_mask = (
+            (df["instrument_id"] == nxt_id)
+            & (df[date_col] >= t_start)
+            & (df[date_col] <= t_end)
+        )
+
+        pre_series = (
+            df.loc[pre_mask]
+            .set_index(date_col)[price_col]
+            .reindex(t)
+        )
+        nxt_series = (
+            df.loc[nxt_mask]
+            .set_index(date_col)[price_col]
+            .reindex(t)
+        )
+
+        pre_exp = expirations.loc[pre_id]
+        nxt_exp = expirations.loc[nxt_id]
+
+        # Weight on the pre- contract
+        f = (nxt_exp - (t + maturity)) / (nxt_exp - pre_exp)
+
+        pre_vals = pre_series.to_numpy()
+        nxt_vals = nxt_series.to_numpy()
+        f_vals = f.to_numpy()
+
+        seg = pd.DataFrame(
+            {
+                date_col: t,
+                "pre_price": pre_vals,
+                "pre_id": pre_id,
+                "pre_expiration": pre_exp,
+                "next_price": nxt_vals,
+                "next_id": nxt_id,
+                "next_expiration": nxt_exp,
+                "pre_weight": f_vals,
+                symbol: f_vals * pre_vals + (1.0 - f_vals) * nxt_vals,
+            }
+        )
+        segments.append(seg)
+
+    if not segments:
+        return pd.DataFrame(
+            columns=[
+                date_col,
+                "pre_price",
+                "pre_id",
+                "pre_expiration",
+                "next_price",
+                "next_id",
+                "next_expiration",
+                "pre_weight",
+                symbol,
+            ]
+        )
+
+    return pd.concat(segments, ignore_index=True)
