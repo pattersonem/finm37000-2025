@@ -30,5 +30,10 @@ MANIFEST
 .venv
 venv/
 
+requirements.txt
+
 # IDEs
 .idea/
+
+# Databento Environment
+.databento_api_key
