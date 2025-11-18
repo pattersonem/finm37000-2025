@@ -69,7 +69,7 @@ def get_databento_api_key(
 
 
 if __name__ == "__main__":
-    with temp_env(DATABENTO_API_KEY=get_databento_api_key()):
+    with temp_env(DATABENTO_API_KEY=get_databento_api_key(".databento_api_key")):
         secret = Secret(os.environ.get("DATABENTO_API_KEY"))
     print(f"Your secret was read: {secret}")
     print(f"Your secret is not in the env: {os.environ.get('DATABENTO_API_KEY')}")
