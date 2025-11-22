@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from finm37000 import additive_splice, multiplicative_splice, tz_chicago
+from src.finm37000 import tz_chicago, additive_splice, multiplicative_splice
 
 
 @pytest.mark.parametrize(
