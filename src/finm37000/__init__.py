@@ -9,8 +9,10 @@ from .constant_maturity import (
     get_roll_spec as get_roll_spec,
 )
 from .continuous import (
-    additive_splice as additive_splice,
-    multiplicative_splice as multiplicative_splice,
+    additive_splice,
+    multiplicative_splice,
+    get_roll_spec,
+    constant_maturity_splice,
 )
 from .db_env_util import (
     temp_env as temp_env,
