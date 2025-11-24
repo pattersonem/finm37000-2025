@@ -3,6 +3,10 @@
 from typing import Optional
 
 import pandas as pd
+import datetime
+
+import numpy as np
+import pandas as pd
 
 
 def _splice_unadjusted(
@@ -452,7 +456,7 @@ def constant_maturity_splice(
                 "next_expiration": next_exp,
                 "pre_weight": pre_weight.values,
                 symbol: cm_price.values,
-            }
+            }git status
         )
         segments.append(seg)
 
