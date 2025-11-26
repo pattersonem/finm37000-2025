@@ -1,7 +1,12 @@
 """A package to support FINM37000."""
 
 from .agg import (
+    aggregate_ohlcv as aggregate_ohlcv,
     make_ohlcv as make_ohlcv,
+)
+from .constant_maturity import (
+    constant_maturity_splice as constant_maturity_splice,
+    get_roll_spec as get_roll_spec,
 )
 from .continuous import (
     additive_splice as additive_splice,
