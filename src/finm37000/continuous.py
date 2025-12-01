@@ -43,7 +43,7 @@ def _calc_additive_adjustment(
         piece = group[(group[date_col] >= d0) & (group[date_col] < d1)].copy()
         if last_date is not None:
             adjustment_piece = group[group[date_col] == last_date]
-            adjustment = adjustment_piece[adjust_by].iloc[-1] - last_true_value
+            adjustment = last_true_value - adjustment_piece[adjust_by].iloc[-1]
             adjustments.append(adjustment)
             adjustment_dates.append(d0)
         last_true_value = piece[adjust_by].iloc[-1]
@@ -71,7 +71,7 @@ def _calc_multiplicative_adjustment(
         piece = group[(group[date_col] >= d0) & (group[date_col] < d1)].copy()
         if last_date is not None:
             adjustment_piece = group[group[date_col] == last_date]
-            adjustment = adjustment_piece[adjust_by].iloc[-1] / last_true_value
+            adjustment = last_true_value / adjustment_piece[adjust_by].iloc[-1]
             adjustments.append(adjustment)
             adjustment_dates.append(d0)
         last_true_value = piece[adjust_by].iloc[-1]

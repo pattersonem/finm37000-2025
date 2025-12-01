@@ -1,3 +1,5 @@
+from io import StringIO
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -65,8 +67,8 @@ def test_additive_splice(time: dict[int, pd.Series]) -> None:
         [np.arange(11, 16), np.arange(12, 23), np.arange(27, 39)],
     )
     adjustment = [
-        prices[1][11] - prices[0][15],
-        prices[0][26] - prices[1][22],
+        prices[0][15] - prices[1][11],
+        prices[1][22] - prices[0][26],
     ]
     adjusted_price = np.concat(
         [
@@ -178,8 +180,8 @@ def test_multiplicative_splice(time: dict[int, pd.Series]) -> None:
         [np.arange(11, 16), np.arange(12, 23), np.arange(27, 39)],
     )
     adjustment = [
-        prices[1][11] / prices[0][15],
-        prices[0][26] / prices[1][22],
+        prices[0][15] / prices[1][11],
+        prices[1][22] / prices[0][26],
     ]
     adjusted_price = np.concat(
         [
@@ -228,4 +230,73 @@ def test_multiplicative_splice(time: dict[int, pd.Series]) -> None:
         adjustment_cols=["price", "alt_price"],
     )
     expected["alt_price"] = adjusted_alt
+    pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_simple_additive_splice_example() -> None:
+    df_csv = """datetime,instrument_id,close
+2024-02-27,1,100
+2024-02-28,1,102
+2024-02-27,2,101
+2024-02-28,2,105
+2024-03-02,2,107
+2024-03-03,2,103
+"""
+    df = pd.read_csv(StringIO(df_csv), parse_dates=["datetime"])
+    roll_spec = [
+        {"d0": "2024-02-27", "d1": "2024-03-02", "s": "1"},
+        {"d0": "2024-03-02", "d1": "2024-03-04", "s": "2"},
+    ]
+    expected = pd.read_csv(
+        StringIO(
+            (
+                "datetime,instrument_id,close,additive_adjustment\n"
+                "2024-02-27,1,100.0,0.0\n"
+                "2024-02-28,1,102.0,0.0\n"
+                "2024-03-02,2,104.0,-3.0\n"
+                "2024-03-03,2,100.0,-3.0\n"
+            )
+        ),
+        parse_dates=["datetime"],
+    )
+    actual = additive_splice(
+        roll_spec,
+        df,
+        date_col="datetime",
+    )
+    pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_simple_multiplicative_splice_example() -> None:
+    df_csv = """datetime,instrument_id,close
+2024-02-27,1,94
+2024-02-28,1,96
+2024-02-27,2,96
+2024-02-28,2,100
+2024-03-02,2,102
+2024-03-03,2,98
+"""
+    df = pd.read_csv(StringIO(df_csv), parse_dates=["datetime"])
+    roll_spec = [
+        {"d0": "2024-02-27", "d1": "2024-03-02", "s": "1"},
+        {"d0": "2024-03-02", "d1": "2024-03-04", "s": "2"},
+    ]
+
+    expected = pd.read_csv(
+        StringIO(
+            (
+                "datetime,instrument_id,close,multiplicative_adjustment\n"
+                "2024-02-27,1,94.0,1.0\n"
+                "2024-02-28,1,96.0,1.0\n"
+                "2024-03-02,2,97.92,0.96\n"
+                "2024-03-03,2,94.08,0.96\n"
+            )
+        ),
+        parse_dates=["datetime"],
+    )
+    actual = multiplicative_splice(
+        roll_spec,
+        df,
+        date_col="datetime",
+    )
     pd.testing.assert_frame_equal(actual, expected)
