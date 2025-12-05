@@ -48,7 +48,7 @@ def _calc_additive_adjustment(
             adjustment_dates.append(d0)
         last_true_value = piece[adjust_by].iloc[-1]
         last_date = piece[date_col].iloc[-1]
-    return pd.Series(adjustments, index=adjustment_dates, name="additive_adjustment")  # type: ignore[no-any-return]
+    return pd.Series(adjustments, index=adjustment_dates, name="additive_adjustment")
 
 
 def _calc_multiplicative_adjustment(
@@ -76,7 +76,7 @@ def _calc_multiplicative_adjustment(
             adjustment_dates.append(d0)
         last_true_value = piece[adjust_by].iloc[-1]
         last_date = piece[date_col].iloc[-1]
-    return pd.Series(  # type: ignore[no-any-return]
+    return pd.Series(
         adjustments,
         index=adjustment_dates,
         name="multiplicative_adjustment",
@@ -130,7 +130,7 @@ def additive_splice(
     cumulative_adjustment = aligned_adjustment.cumsum()
     for col in adjustment_cols:
         with_adjustment[col] = with_adjustment[col] + cumulative_adjustment
-    with_adjustment[adjustments.name] = cumulative_adjustment
+    with_adjustment[adjustments.name] = cumulative_adjustment  # type: ignore
     new_columns = df.columns.tolist() + [adjustments.name]
     return with_adjustment.reset_index()[new_columns]
 
@@ -182,6 +182,6 @@ def multiplicative_splice(
     cumulative_adjustment = aligned_adjustment.cumprod()
     for col in adjustment_cols:
         with_adjustment[col] = with_adjustment[col] * cumulative_adjustment
-    with_adjustment[adjustments.name] = cumulative_adjustment
+    with_adjustment[adjustments.name] = cumulative_adjustment  # type: ignore
     new_columns = df.columns.tolist() + [adjustments.name]
     return with_adjustment.reset_index()[new_columns]

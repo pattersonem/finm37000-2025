@@ -1,7 +1,7 @@
 """Simple option pricing implementations."""
 
 from enum import Enum
-from typing import Iterable, cast
+from typing import Iterable, Optional, Sequence, cast
 
 import databento as db
 import numpy as np
@@ -16,6 +16,47 @@ class OptionType(Enum):
 
     CALL = "Call"
     PUT = "Put"
+
+
+def calc_black_scholes(  # noqa: PLR0913
+    S: float | np.ndarray,  # noqa: N803
+    K: float | np.ndarray,  # noqa: N803
+    T: float | np.ndarray,  # noqa: N803
+    vol: float | np.ndarray,
+    r: float | np.ndarray,
+    q: float | np.ndarray,
+    option_type: OptionType,
+) -> float | np.ndarray:
+    """Compute Black-Scholes model for European options on equities."""
+    f = S * np.exp((r - q) * T)
+    d1 = (np.log(f / K) + (vol**2 / 2) * T) / (vol * np.sqrt(T))
+    d2 = d1 - vol * np.sqrt(T)
+    discount_factor = np.exp(-r * T)
+
+    cp = 1 if option_type == OptionType.CALL else -1
+    return cast(
+        "float", discount_factor * cp * (f * norm.cdf(cp * d1) - K * norm.cdf(cp * d2))
+    )
+
+
+def calc_black_scholes_numerical_rho(  # noqa: PLR0913
+    S: float | np.ndarray,  # noqa: N803
+    K: float | np.ndarray,  # noqa: N803
+    T: float | np.ndarray,  # noqa: N803
+    vol: float | np.ndarray,
+    r: float | np.ndarray,
+    q: float | np.ndarray,
+    option_type: OptionType,
+    dr: float | np.ndarray = 0.0001,
+) -> float | np.ndarray:
+    """Compute Black-Scholes rho for European options on equities."""
+    up_price = calc_black_scholes(
+        S=S, K=K, r=r + dr, T=T, q=q, vol=vol, option_type=option_type
+    )
+    down_price = calc_black_scholes(
+        S=S, K=K, r=r - dr, T=T, q=q, vol=vol, option_type=option_type
+    )
+    return (up_price - down_price) / (2.0 * dr)
 
 
 def calc_black(  # noqa: PLR0913
@@ -37,12 +78,314 @@ def calc_black(  # noqa: PLR0913
     )
 
 
-def get_options_chain(
+def calc_black_one_day_theta(  # noqa: PLR0913
+    F: float | np.ndarray,  # noqa: N803
+    K: float | np.ndarray,  # noqa: N803
+    T: float | np.ndarray,  # noqa: N803
+    vol: float | np.ndarray,
+    r: float | np.ndarray,
+    option_type: OptionType,
+    dt: float,
+) -> float | np.ndarray:
+    """Compute Black 76 model for European options on forwards."""
+    price_dt = calc_black(
+        F=F,
+        K=K,
+        r=r,
+        T=T - dt,
+        vol=vol,
+        option_type=option_type,
+    )
+    price = calc_black(
+        F=F,
+        K=K,
+        r=r,
+        T=T,
+        vol=vol,
+        option_type=option_type,
+    )
+    return price - price_dt
+
+
+def calc_black_numerical_theta(  # noqa: PLR0913
+    F: float | np.ndarray,  # noqa: N803
+    K: float | np.ndarray,  # noqa: N803
+    T: float | np.ndarray,  # noqa: N803
+    vol: float | np.ndarray,
+    r: float | np.ndarray,
+    option_type: OptionType,
+    dt: float,
+) -> float | np.ndarray:
+    """Use Black model to numerically compute theta."""
+    return (
+        calc_black_one_day_theta(
+            F=F,
+            K=K,
+            T=T,
+            vol=vol,
+            r=r,
+            option_type=option_type,
+            dt=dt,
+        )
+        / dt
+    )
+
+
+def calc_american_price(  # type: ignore[no-untyped-def] # noqa: ANN201, PLR0913
+    future,  # noqa: ANN001
+    strike,  # noqa: ANN001
+    t,  # noqa: ANN001
+    vol,  # noqa: ANN001
+    r,  # noqa: ANN001
+    option_type,  # noqa: ANN001
+):
+    """Use QuantLib's Adesi/Whaley model to calculate American prices on futures."""
+    today = ql.Date.todaysDate()
+    ql.Settings.instance().evaluationDate = today
+    day_count = ql.Actual365Fixed()
+    calendar = ql.NullCalendar()
+
+    spot = ql.SimpleQuote(0.0)
+    vol_q = ql.SimpleQuote(0.0)
+
+    spot_h = ql.QuoteHandle(spot)
+    vol_h = ql.BlackVolTermStructureHandle(
+        ql.BlackConstantVol(today, calendar, ql.QuoteHandle(vol_q), day_count)
+    )
+
+    r_h = ql.RelinkableYieldTermStructureHandle()
+    q_h = ql.RelinkableYieldTermStructureHandle()
+
+    dummy_curve = ql.FlatForward(today, 0.0, day_count)
+    r_h.linkTo(dummy_curve)
+    q_h.linkTo(dummy_curve)
+
+    process = ql.GeneralizedBlackScholesProcess(spot_h, q_h, r_h, vol_h)
+    engine = ql.BaroneAdesiWhaleyApproximationEngine(process)
+
+    def calc_one(future_, strike_, t_, vol_, r_, opt_):  # type: ignore[no-untyped-def] # noqa: ANN001, ANN202, PLR0913
+        if np.isnan(vol_):
+            return np.nan
+        spot.setValue(float(future_))
+        vol_q.setValue(float(vol_))
+
+        curve = ql.FlatForward(today, r_, day_count)
+        r_h.linkTo(curve)
+        q_h.linkTo(curve)
+
+        if opt_ == "C":
+            opt_type = ql.Option.Call
+        elif opt_ == "P":
+            opt_type = ql.Option.Put
+        else:
+            msg = f"Invalid option type: {opt_}"
+            raise ValueError(msg)
+
+        payoff = ql.PlainVanillaPayoff(opt_type, strike_)
+
+        maturity = today + int(365 * t_)
+        exercise = ql.AmericanExercise(today, maturity)
+
+        option = ql.VanillaOption(payoff, exercise)
+        option.setPricingEngine(engine)
+
+        return option.NPV()
+
+    future_, strike_, t_, vol_, r_, opt_ = np.broadcast_arrays(
+        future, strike, t, vol, r, option_type
+    )
+    flat = zip(
+        future_.ravel(),
+        strike_.ravel(),
+        t_.ravel(),
+        vol_.ravel(),
+        r_.ravel(),
+        opt_.ravel(),
+    )
+    out = np.array([calc_one(*row) for row in flat])
+
+    return out.reshape(future_.shape)
+
+
+def calc_american_greeks(  # type: ignore[no-untyped-def] # noqa: ANN201, PLR0913
+    future,  # noqa: ANN001
+    strike,  # noqa: ANN001
+    t,  # noqa: ANN001
+    vol,  # noqa: ANN001
+    r,  # noqa: ANN001
+    option_type,  # noqa: ANN001
+):
+    """Use QuantLib's Adesi/Whaley model to calculate American greeks on futures."""
+    today = ql.Date.todaysDate()
+    ql.Settings.instance().evaluationDate = today
+    day_count = ql.Actual365Fixed()
+    calendar = ql.NullCalendar()
+
+    spot = ql.SimpleQuote(0.0)
+    vol_q = ql.SimpleQuote(0.0)
+
+    spot_h = ql.QuoteHandle(spot)
+    vol_h = ql.BlackVolTermStructureHandle(
+        ql.BlackConstantVol(today, calendar, ql.QuoteHandle(vol_q), day_count)
+    )
+
+    r_h = ql.RelinkableYieldTermStructureHandle()
+    q_h = ql.RelinkableYieldTermStructureHandle()
+
+    dummy_curve = ql.FlatForward(today, 0.0, day_count)
+    r_h.linkTo(dummy_curve)
+    q_h.linkTo(dummy_curve)
+
+    process = ql.GeneralizedBlackScholesProcess(spot_h, q_h, r_h, vol_h)
+    engine = ql.BaroneAdesiWhaleyApproximationEngine(process)
+
+    def calc_one(future_, strike_, t_, vol_, r_, opt_):  # type: ignore[no-untyped-def] # noqa: ANN001, ANN202, PLR0913
+        if np.isnan(vol_):
+            return np.nan
+        spot.setValue(float(future_))
+        vol_q.setValue(float(vol_))
+
+        curve = ql.FlatForward(today, r_, day_count)
+        r_h.linkTo(curve)
+        q_h.linkTo(curve)
+
+        if opt_ == "C":
+            opt_type = ql.Option.Call
+        elif opt_ == "P":
+            opt_type = ql.Option.Put
+        else:
+            msg = f"Invalid option type: {opt_}"
+            raise ValueError(msg)
+
+        payoff = ql.PlainVanillaPayoff(opt_type, strike_)
+
+        maturity = today + int(365 * t_)
+        exercise = ql.AmericanExercise(today, maturity)
+
+        option = ql.VanillaOption(payoff, exercise)
+        option.setPricingEngine(engine)
+
+        # Sadly, deltaForward not provided
+        return (
+            option.NPV(),
+            option.delta(),
+            option.vega(),
+            option.theta(),
+            option.rho() - option.dividendRho(),
+        )
+
+    future_, strike_, t_, vol_, r_, opt_ = np.broadcast_arrays(
+        future, strike, t, vol, r, option_type
+    )
+    flat = zip(
+        future_.ravel(),
+        strike_.ravel(),
+        t_.ravel(),
+        vol_.ravel(),
+        r_.ravel(),
+        opt_.ravel(),
+    )
+    out = np.array([calc_one(*row) for row in flat])
+
+    greek_shape = [future_.shape[0], 5]
+    return out.reshape(greek_shape)
+
+
+def calc_numerical_delta(future, strike, r, t, vol, option_type, dfuture):  # type: ignore[no-untyped-def] # noqa: ANN001, ANN201, PLR0913
+    """Compute non-skew adjusted American option deltas."""
+    up_price = calc_american_price(
+        future=future + dfuture,
+        strike=strike,
+        r=r,
+        t=t,
+        vol=vol,
+        option_type=option_type,
+    )
+    down_price = calc_american_price(
+        future=future - dfuture,
+        strike=strike,
+        r=r,
+        t=t,
+        vol=vol,
+        option_type=option_type,
+    )
+    return (up_price - down_price) / (2.0 * dfuture)
+
+
+def calc_one_day_theta(future, strike, r, t, vol, option_type, dt=1 / 365):  # type: ignore[no-untyped-def] # noqa: ANN001, ANN201, PLR0913
+    """Compute non-skew adjusted American option one-day time decay.
+
+    This does not seem reliable as implemented, presumably due
+    to the granularity of time allowed by the QuantLib implementation.
+    """
+    price_dt = calc_american_price(
+        future=future,
+        strike=strike,
+        r=r,
+        t=t - dt,
+        vol=vol,
+        option_type=option_type,
+    )
+    price = calc_american_price(
+        future=future,
+        strike=strike,
+        r=r,
+        t=t,
+        vol=vol,
+        option_type=option_type,
+    )
+    return price - price_dt
+
+
+def calc_numerical_theta(future, strike, r, t, vol, option_type, dt=1 / 365):  # type: ignore[no-untyped-def] # noqa: ANN001, ANN201, PLR0913
+    """Compute non-skew adjusted American option thetas.
+
+    This does not seem reliable as implemented, presumably due
+    to the granularity of time allowed by the QuantLib implementation.
+    """
+    return (
+        calc_one_day_theta(
+            future=future,
+            strike=strike,
+            r=r,
+            t=t,
+            vol=vol,
+            option_type=option_type,
+            dt=dt,
+        )
+        / dt
+    )
+
+
+def calc_numerical_vega(future, strike, r, t, vol, option_type, dvol=0.01):  # type: ignore[no-untyped-def] # noqa: ANN001, ANN201, PLR0913
+    """Compute non-skew adjusted American option vegas."""
+    up_price = calc_american_price(
+        future=future, strike=strike, r=r, t=t, vol=vol + dvol, option_type=option_type
+    )
+    down_price = calc_american_price(
+        future=future, strike=strike, r=r, t=t, vol=vol - dvol, option_type=option_type
+    )
+    return (up_price - down_price) / (2.0 * dvol)
+
+
+def calc_numerical_rho(future, strike, r, t, vol, option_type, dr=0.0001):  # type: ignore[no-untyped-def] # noqa: ANN001, ANN201, PLR0913
+    """Compute non-skew adjusted American option rho."""
+    up_price = calc_american_price(
+        future=future, strike=strike, r=r + dr, t=t, vol=vol, option_type=option_type
+    )
+    down_price = calc_american_price(
+        future=future, strike=strike, r=r - dr, t=t, vol=vol, option_type=option_type
+    )
+    return (up_price - down_price) / (2.0 * dr)
+
+
+def get_options_chain(  # noqa: PLR0913
     parent: str,
-    underlying: str,
     start: pd.Timestamp,
     client: db.Historical,
+    underlying: Optional[str],
     days_per_year: float = 365.0,
+    instrument_class: Optional[Sequence[str]] = ("C", "P"),
 ) -> pd.DataFrame:
     """Retrieve the definitions of shared-parent options contracts.
 
@@ -50,14 +393,21 @@ def get_options_chain(
     ----------
     parent : str
         The parent symbol, such as ES.
-    underlying : str
-        The underlying contract for the option.
     start : pd.Timestamp
         The date to obtain the definitions for.
     client: db.Historical
         The Historical client to retrieve databento data.
+    underlying : str
+        The underlying contract for the option. Default of None
+        will return options with any underlying. Note that spreads
+        do not come with the `"underlying"` column populated, so
+        spreads require this argument to be None.
     days_per_year: float
         The number of days to use to normalize day counts.
+    instrument_class: Sequence[str]
+        Filter for which instrument type to return. Calls (`"C"`),
+        puts (`"P"`), and others such as spreads (`"T"`). Default
+        of None will return all definitions.
 
     Returns:
     -------
@@ -73,8 +423,10 @@ def get_options_chain(
     )
 
     df = options_def.to_df()
-    df = df[df["underlying"] == underlying]
-    df = df[df["instrument_class"].isin(("C", "P"))]
+    if underlying is not None:
+        df = df[df["underlying"] == underlying]
+    if instrument_class is not None:
+        df = df[df["instrument_class"].isin(instrument_class)]
     df["years_to_expiration"] = (
         (df["expiration"] - start).dt.total_seconds() / days_per_year / 24 / 60 / 60
     )
