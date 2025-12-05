@@ -96,7 +96,7 @@ def fit_weighted_piecewise_polynomial_skew(
     def piecewise_polynomial_skew(x: pd.Series | np.ndarray) -> np.ndarray:
         if isinstance(x, pd.Series):
             x = x.to_numpy()
-        return np.piecewise(x, [x < atm, x >= atm], [put_skew, call_skew])  # type: ignore[operator]
+        return np.piecewise(x, [x < atm, x >= atm], [put_skew, call_skew])
 
     return piecewise_polynomial_skew
 
