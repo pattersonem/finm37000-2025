@@ -68,3 +68,7 @@ from .time import (
     tz_chicago as tz_chicago,
     us_business_day as us_business_day,
 )
+
+from .get_roll_spec import get_roll_spec
+from .constant_maturity_splice import constant_maturity_splice
+
