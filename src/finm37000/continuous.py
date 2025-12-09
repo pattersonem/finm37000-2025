@@ -3,6 +3,7 @@
 from typing import Optional
 
 import pandas as pd
+import re
 
 
 def _splice_unadjusted(
@@ -185,3 +186,67 @@ def multiplicative_splice(
     with_adjustment[adjustments.name] = cumulative_adjustment  # type: ignore
     new_columns = df.columns.tolist() + [adjustments.name]
     return with_adjustment.reset_index()[new_columns]
+
+def constant_maturity_splice(
+    symbol: str,
+    roll_spec: list[dict[str, str]],
+    data: pd.DataFrame,
+    *,
+    date_col: str = "datetime",
+    price_col: str = "price",
+) -> pd.DataFrame:
+    m: re.Match[str] | None = re.search(pattern=r"\.cm\.(\d+)$", string=symbol)
+    if not m:
+        raise ValueError(f"Symbol '{symbol}' does not contain '.cm.<days>' suffix")
+    maturity_days = pd.Timedelta(days=int(m.group(1)))
+
+    df: pd.DataFrame = data.copy()
+    df[date_col] = pd.to_datetime(arg=df[date_col], utc=True)
+    df["expiration"] = pd.to_datetime(arg=df["expiration"], utc=True)
+
+    id_groups = {k: g.set_index(keys=date_col).sort_index()
+                 for k, g in df.groupby("instrument_id", sort=False)}
+    expirations = {k: g["expiration"].iloc[0] for k, g in id_groups.items()}
+
+    tz = df[date_col].dt.tz
+    if tz is None:
+        tz = "UTC"
+
+    out_segments = []
+
+    for r in roll_spec:
+        d0: pd.Timestamp = pd.Timestamp(ts_input=r["d0"]).tz_localize(tz=tz)
+        d1: pd.Timestamp = pd.Timestamp(ts_input=r["d1"]).tz_localize(tz=tz)
+        pre_id = int(r["p"])
+        nxt_id = int(r["n"])
+
+        t_idx = pd.date_range(start=d0, end=d1, inclusive="left", tz=tz)
+
+        try:
+            pre_frame: pd.DataFrame = id_groups[pre_id].reindex(labels=t_idx)
+            nxt_frame: pd.DataFrame = id_groups[nxt_id].reindex(labels=t_idx)
+        except KeyError as e:
+            raise KeyError(f"Missing instrument_id in data: {e}") from e
+
+        pre_price = pre_frame[price_col]
+        nxt_price = nxt_frame[price_col]
+
+        exp_pre = expirations[pre_id]
+        exp_nxt = expirations[nxt_id]
+
+        f = (exp_nxt - (t_idx + maturity_days)) / (exp_nxt - exp_pre)
+
+        seg = pd.DataFrame(data={
+            "datetime": t_idx,
+            "pre_price": pre_price.values,
+            "pre_id": pre_id,
+            "pre_expiration": exp_pre,
+            "next_price": nxt_price.values,
+            "next_id": nxt_id,
+            "next_expiration": exp_nxt,
+            "pre_weight": f.values,
+            symbol: f.values * pre_price.values + (1.0 - f.values) * nxt_price.values,
+        })
+        out_segments.append(seg)
+
+    return pd.concat(objs=out_segments, ignore_index=True)

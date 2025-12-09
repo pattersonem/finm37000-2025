@@ -11,6 +11,7 @@ from .constant_maturity import (
 from .continuous import (
     additive_splice as additive_splice,
     multiplicative_splice as multiplicative_splice,
+    constant_maturity_splice as constant_maturity_splice,
 )
 from .db_env_util import (
     temp_env as temp_env,
@@ -68,3 +69,8 @@ from .time import (
     tz_chicago as tz_chicago,
     us_business_day as us_business_day,
 )
+
+from .rollspec import (
+    get_roll_spec as get_roll_spec,
+)
+
